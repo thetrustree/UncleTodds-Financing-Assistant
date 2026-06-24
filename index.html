@@ -1575,12 +1575,12 @@ async function copyTeamSetupLink() {
     ] : [];
     for (const option of logoOptions) {
       compactLogo = await compactLogoForSharing(marketLogo, option);
-      payload = await encodeSharedSetup(JSON.stringify({v:4, m:setupChanges.modified, r:setupChanges.removed, l:compactLogo, n:marketLogoName}));
+      payload = await encodeSharedSetup(JSON.stringify({v:5, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, l:compactLogo, n:marketLogoName}));
       url = baseUrl + payload;
       if (url.length <= 5000) break;
     }
     if (!marketLogo) {
-      payload = await encodeSharedSetup(JSON.stringify({v:4, m:setupChanges.modified, r:setupChanges.removed, l:'', n:''}));
+      payload = await encodeSharedSetup(JSON.stringify({v:5, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, l:'', n:''}));
       url = baseUrl + payload;
     } else if (url.length > 12000) {
       throw new Error('This logo is still too large to share safely. Try a simpler PNG with a transparent background.');
@@ -1597,7 +1597,8 @@ function buildSetupChanges() {
   const defaultsById = {};
   DEFAULT_PARTNERS.forEach(function(partner) { defaultsById[partner.id] = partner; });
   const currentDefaultIds = {};
-  const modified = [];
+  const changed = [];
+  const added = [];
   partners.forEach(function(partner, pi) {
     let partnerId = defaultsById[partner.id] ? partner.id : '';
     if (!partnerId) {
@@ -1606,50 +1607,102 @@ function buildSetupChanges() {
       });
       if (nameMatch) partnerId = nameMatch.id;
     }
-    const shareId = partnerId || partner.id || ('custom-p' + pi);
-    if (partnerId) currentDefaultIds[partnerId] = true;
-    const compact = compactPartnerForSharing(partner, shareId);
-    if (!partnerId || JSON.stringify(normalizePartner(partner)) !== JSON.stringify(normalizePartner(defaultsById[partnerId]))) {
-      modified.push(compact);
+    if (!partnerId) {
+      added.push(compactPartnerForSharing(partner, partner.id || ('custom-p' + pi)));
+      return;
+    }
+    currentDefaultIds[partnerId] = true;
+    const defaultPartner = defaultsById[partnerId];
+    const usedPlanIds = {};
+    const upserts = [];
+    partner.plans.forEach(function(plan, li) {
+      const defaultPlan = findMatchingDefaultPlan(plan, defaultPartner.plans, usedPlanIds);
+      if (!defaultPlan) {
+        upserts.push(compactPlanForSharing(plan, plan.id || (partnerId + '-custom-' + li)));
+        return;
+      }
+      usedPlanIds[defaultPlan.id] = true;
+      if (JSON.stringify(normalizePlan(plan)) !== JSON.stringify(normalizePlan(defaultPlan))) {
+        upserts.push(compactPlanForSharing(plan, defaultPlan.id));
+      }
+    });
+    const removedPlans = defaultPartner.plans
+      .filter(function(plan) { return !usedPlanIds[plan.id]; })
+      .map(function(plan) { return plan.id; });
+    const renamed = partner.name !== defaultPartner.name ? partner.name : '';
+    if (renamed || removedPlans.length || upserts.length) {
+      changed.push([partnerId, renamed, removedPlans, upserts]);
     }
   });
   const removed = DEFAULT_PARTNERS
     .filter(function(partner) { return !currentDefaultIds[partner.id]; })
     .map(function(partner) { return partner.id; });
-  return {modified:modified, removed:removed};
+  return {changed:changed, removed:removed, added:added};
 }
 
 function compactPartnerForSharing(partner, partnerId) {
   return [partnerId, partner.name, partner.plans.map(function(plan, li) {
-    return [
-      plan.id || (partnerId + '-pl' + li),
-      plan.name,
-      Number(plan.term) || 0,
-      Number(plan.factor) || 0,
-      Number(plan.dealerFee) || 0,
-      Number(plan.minAmt) || 0,
-      Number(plan.maxAmt) || 0,
-      plan.promo || '',
-      plan.active === false ? 0 : 1
-    ];
+    return compactPlanForSharing(plan, plan.id || (partnerId + '-pl' + li));
   })];
 }
 
-function normalizePartner(partner) {
+function compactPlanForSharing(plan, planId) {
+  return [
+    planId,
+    plan.name,
+    Number(plan.term) || 0,
+    Number(plan.factor) || 0,
+    Number(plan.dealerFee) || 0,
+    Number(plan.minAmt) || 0,
+    Number(plan.maxAmt) || 0,
+    plan.promo || '',
+    plan.active === false ? 0 : 1
+  ];
+}
+
+function normalizePlan(plan) {
   return {
-    name: partner.name,
-    plans: partner.plans.map(function(plan) {
-      return {
-        name: plan.name,
-        term: Number(plan.term) || 0,
-        factor: Number(plan.factor) || 0,
-        dealerFee: Number(plan.dealerFee) || 0,
-        minAmt: Number(plan.minAmt) || 0,
-        maxAmt: Number(plan.maxAmt) || 0,
-        promo: plan.promo || '',
-        active: plan.active !== false
-      };
-    })
+    name: plan.name,
+    term: Number(plan.term) || 0,
+    factor: Number(plan.factor) || 0,
+    dealerFee: Number(plan.dealerFee) || 0,
+    minAmt: Number(plan.minAmt) || 0,
+    maxAmt: Number(plan.maxAmt) || 0,
+    promo: plan.promo || '',
+    active: plan.active !== false
+  };
+}
+
+function findMatchingDefaultPlan(plan, defaultPlans, usedPlanIds) {
+  let match = defaultPlans.find(function(candidate) { return candidate.id === plan.id && !usedPlanIds[candidate.id]; });
+  if (match) return match;
+  match = defaultPlans.find(function(candidate) { return candidate.name === plan.name && !usedPlanIds[candidate.id]; });
+  if (match) return match;
+  const signature = JSON.stringify({
+    term:Number(plan.term)||0, factor:Number(plan.factor)||0, dealerFee:Number(plan.dealerFee)||0,
+    minAmt:Number(plan.minAmt)||0, maxAmt:Number(plan.maxAmt)||0, promo:plan.promo||'', active:plan.active!==false
+  });
+  return defaultPlans.find(function(candidate) {
+    if (usedPlanIds[candidate.id]) return false;
+    return JSON.stringify({
+      term:Number(candidate.term)||0, factor:Number(candidate.factor)||0, dealerFee:Number(candidate.dealerFee)||0,
+      minAmt:Number(candidate.minAmt)||0, maxAmt:Number(candidate.maxAmt)||0, promo:candidate.promo||'', active:candidate.active!==false
+    }) === signature;
+  }) || null;
+}
+
+function inflateCompactPlan(plan, fallbackId) {
+  if (!Array.isArray(plan)) throw new Error('Invalid setup');
+  return {
+    id: String(plan[0] || fallbackId),
+    name: String(plan[1] || 'Unnamed Plan'),
+    term: Number(plan[2]) || 0,
+    factor: Number(plan[3]) || 0,
+    dealerFee: Number(plan[4]) || 0,
+    minAmt: Number(plan[5]) || 0,
+    maxAmt: Number(plan[6]) || 0,
+    promo: String(plan[7] || ''),
+    active: plan[8] !== 0
   };
 }
 
@@ -1663,6 +1716,42 @@ async function readSharedSetupFromUrl() {
     if (!payloadMatch) throw new Error('Invalid setup');
     const payload = payloadMatch[1];
     const data = JSON.parse(await decodeSharedSetup(payload));
+    if (data && data.v === 5 && Array.isArray(data.c) && Array.isArray(data.r) && Array.isArray(data.a)) {
+      const restoredPartners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)).filter(function(partner) {
+        return data.r.indexOf(partner.id) === -1;
+      });
+      data.c.forEach(function(change) {
+        if (!Array.isArray(change) || !Array.isArray(change[2]) || !Array.isArray(change[3])) throw new Error('Invalid setup');
+        const partner = restoredPartners.find(function(candidate) { return candidate.id === change[0]; });
+        if (!partner) throw new Error('Invalid setup');
+        if (change[1]) partner.name = String(change[1]);
+        partner.plans = partner.plans.filter(function(plan) { return change[2].indexOf(plan.id) === -1; });
+        change[3].forEach(function(compactPlan, li) {
+          const plan = inflateCompactPlan(compactPlan, partner.id + '-shared-' + li);
+          const planIndex = partner.plans.findIndex(function(candidate) { return candidate.id === plan.id; });
+          if (planIndex === -1) partner.plans.push(plan);
+          else partner.plans[planIndex] = plan;
+        });
+        partner._open = false;
+      });
+      data.a.forEach(function(compactPartner, pi) {
+        if (!Array.isArray(compactPartner) || !Array.isArray(compactPartner[2])) throw new Error('Invalid setup');
+        restoredPartners.push({
+          id: String(compactPartner[0] || ('shared-custom-' + pi)),
+          name: String(compactPartner[1] || 'Partner'),
+          _open: false,
+          plans: compactPartner[2].map(function(plan, li) {
+            return inflateCompactPlan(plan, 'shared-custom-' + pi + '-' + li);
+          })
+        });
+      });
+      const planDeltaLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
+      return {
+        partners: restoredPartners,
+        logo: planDeltaLogo,
+        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+      };
+    }
     if (data && data.v === 4 && Array.isArray(data.m) && Array.isArray(data.r)) {
       const restoredPartners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)).filter(function(partner) {
         return data.r.indexOf(partner.id) === -1;
