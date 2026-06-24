@@ -1586,24 +1586,24 @@ async function copyTeamSetupLink() {
       {width:140, height:64, quality:0.52},
       {width:112, height:54, quality:0.40},
       {width:88, height:44, quality:0.30},
-      {width:72, height:36, quality:0.22}
+      {width:72, height:36, quality:0.22},
+      {width:56, height:30, quality:0.14},
+      {width:44, height:24, quality:0.08}
     ] : [];
     for (const option of logoOptions) {
       compactLogo = await compactLogoForSharing(marketLogo, option);
       payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:compactLogo, logoName:marketLogoName}));
       url = baseUrl + payload;
-      if (url.length <= 12000) break;
+      if (url.length <= 9000) break;
     }
     if (!marketLogo) {
       payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:'', logoName:''}));
       url = baseUrl + payload;
     } else if (url.length > 12000) {
-      payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:'', logoName:''}));
-      url = baseUrl + payload;
-      alert('The plans were copied successfully, but this unusually detailed logo could not be included. Try a simpler PNG with a transparent background.');
+      throw new Error('This logo is still too large to share safely. Try a simpler PNG with a transparent background.');
     }
     await copyText(url);
-    button.innerHTML = '&#10003; Link Copied';
+    button.innerHTML = marketLogo ? '&#10003; Link + Logo Copied' : '&#10003; Link Copied';
     setTimeout(function(){ button.innerHTML = originalText; }, 2200);
   } catch (error) {
     alert(error.message || 'Could not copy the team link.');
