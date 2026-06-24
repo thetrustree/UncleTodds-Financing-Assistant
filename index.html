@@ -1578,13 +1578,29 @@ async function copyTeamSetupLink() {
         })
       };
     });
-    const compactLogo = marketLogo ? await compactLogoForSharing(marketLogo) : '';
-    let payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:compactLogo, logoName:marketLogoName}));
-    let url = location.href.split('#')[0] + '#team-setup=' + payload;
-    if (url.length > 8000 && compactLogo) {
+    const baseUrl = location.href.split('#')[0] + '#team-setup=';
+    let payload = '';
+    let url = '';
+    let compactLogo = '';
+    const logoOptions = marketLogo ? [
+      {width:140, height:64, quality:0.52},
+      {width:112, height:54, quality:0.40},
+      {width:88, height:44, quality:0.30},
+      {width:72, height:36, quality:0.22}
+    ] : [];
+    for (const option of logoOptions) {
+      compactLogo = await compactLogoForSharing(marketLogo, option);
+      payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:compactLogo, logoName:marketLogoName}));
+      url = baseUrl + payload;
+      if (url.length <= 12000) break;
+    }
+    if (!marketLogo) {
       payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:'', logoName:''}));
-      url = location.href.split('#')[0] + '#team-setup=' + payload;
-      alert('This logo is too detailed to fit safely inside a shared link. The plans will be shared, but the logo was left out.');
+      url = baseUrl + payload;
+    } else if (url.length > 12000) {
+      payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:'', logoName:''}));
+      url = baseUrl + payload;
+      alert('The plans were copied successfully, but this unusually detailed logo could not be included. Try a simpler PNG with a transparent background.');
     }
     await copyText(url);
     button.innerHTML = '&#10003; Link Copied';
@@ -1641,13 +1657,13 @@ async function readSharedSetupFromUrl() {
   }
 }
 
-function compactLogoForSharing(dataUrl) {
+function compactLogoForSharing(dataUrl, options) {
   return new Promise(function(resolve) {
     const image = new Image();
     image.onerror = function(){ resolve(''); };
     image.onload = function() {
-      const maxWidth = 140;
-      const maxHeight = 64;
+      const maxWidth = options.width;
+      const maxHeight = options.height;
       const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -1655,7 +1671,7 @@ function compactLogoForSharing(dataUrl) {
       const context = canvas.getContext('2d');
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/webp', 0.52));
+      resolve(canvas.toDataURL('image/webp', options.quality));
     };
     image.src = dataUrl;
   });
