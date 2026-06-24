@@ -45,8 +45,8 @@
     .header::before { content:''; position:absolute; left:0; top:0; bottom:0; width:6px; background:var(--royal); }
     .header-left { display:flex; align-items:center; gap:18px; padding-left:4px; }
     .brand-logo-wrap { width:74px; height:64px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-    .market-logo { display:none; max-width:74px; max-height:64px; width:auto; height:auto; object-fit:contain; }
     .header-label { font-family:'Barlow Condensed',sans-serif; font-size:10px; font-weight:700; letter-spacing:4px; color:var(--steel); text-transform:uppercase; margin-bottom:3px; }
+    .header-market { display:none; font-family:'Barlow Condensed',sans-serif; font-size:13px; font-weight:700; letter-spacing:2px; color:var(--job1); text-transform:uppercase; margin-top:5px; }
     .header h1 { font-family:'Barlow Condensed',sans-serif; font-size:clamp(26px,4vw,42px); font-weight:900; line-height:1; color:var(--white); text-transform:uppercase; letter-spacing:1px; }
     .header h1 span { color:var(--royal2); }
     .header-sub { font-size:12px; color:var(--mid); margin-top:4px; }
@@ -269,9 +269,6 @@
     .import-status.success { border-color:#1A6640; color:#2ECC71; }
     .import-status.error { border-color:#7A1A10; color:#E74C3C; }
     .import-status.loading { color:var(--mid); }
-    .logo-preview { min-height:92px; margin-top:14px; padding:12px; background:var(--deep); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; }
-    .logo-preview img { display:none; max-width:260px; max-height:90px; object-fit:contain; }
-    .logo-preview-empty { color:var(--mid); font-size:12px; text-align:center; }
 
     /* BOTTOM BAR */
     .bottom-bar { background:var(--navy); border-top:2px solid var(--border); padding:14px 32px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
@@ -318,11 +315,11 @@
       <line x1="32" y1="24" x2="32" y2="15" stroke="#6A8AA8" stroke-width="1" opacity="0.9"/>
       <line x1="27" y1="18" x2="37" y2="18" stroke="#6A8AA8" stroke-width="0.8" opacity="0.7"/>
     </svg>
-    <img id="market-logo" class="market-logo" alt="Market logo">
     </div>
     <div>
-      <div class="header-label" id="header-brand-label">Brought to you by Battleship</div>
+      <div class="header-label">Brought to you by Battleship</div>
       <h1>Field <span>Financing</span></h1>
+      <div class="header-market" id="header-market-name"></div>
       <div class="header-sub">Type in the job amount. See every option that fits.</div>
     </div>
   </div>
@@ -364,7 +361,7 @@
     <div class="setup-title">Financing Partners &amp; Plans</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" id="share-setup-btn" onclick="copyTeamSetupLink()">&#128279; Copy Team Link</button>
-      <button class="btn btn-ghost btn-sm" onclick="openLogoModal()">&#128444; Change Logo</button>
+      <button class="btn btn-ghost btn-sm" onclick="changeMarketName()">&#9998; Change Market Name</button>
       <button class="btn btn-ghost btn-sm" onclick="openImport()">&#8593; Import Rate Sheet</button>
       <button class="btn btn-primary" onclick="addPartner()">+ Add Partner</button>
     </div>
@@ -375,36 +372,6 @@
 <div class="bottom-bar">
   <div class="bottom-quote">"The customer doesn't say no to the job. <strong>They say no to the payment.</strong>"</div>
   <button class="btn btn-ghost btn-sm" onclick="resetAll()">Reset All</button>
-</div>
-
-<!-- LOGO MODAL -->
-<div class="modal-overlay" id="logo-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Change <span>Market Logo</span></div>
-      <button class="modal-close" onclick="closeLogoModal()">&#10005;</button>
-    </div>
-    <div class="modal-body">
-      <div class="drop-zone" id="logo-drop-zone" onclick="document.getElementById('logo-file-input').click()"
-        ondragover="event.preventDefault(); this.classList.add('drag-over')"
-        ondragleave="this.classList.remove('drag-over')"
-        ondrop="handleLogoDrop(event)">
-        <div class="drop-zone-icon">&#128444;</div>
-        <div class="drop-zone-title">Drop your market logo here</div>
-        <div class="drop-zone-sub">PNG images work best. Large logos are resized automatically.</div>
-        <input type="file" id="logo-file-input" accept=".png,image/png" onchange="handleLogoFile(this.files[0])">
-      </div>
-      <div class="logo-preview">
-        <img id="logo-preview-image" alt="Selected market logo">
-        <div class="logo-preview-empty" id="logo-preview-empty">The current Battleship logo is being used.</div>
-      </div>
-      <div class="import-status" id="logo-status"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-danger btn-sm" onclick="removeMarketLogo()">Use Default Logo</button>
-      <button class="btn btn-ghost btn-sm" onclick="closeLogoModal()">Done</button>
-    </div>
-  </div>
 </div>
 
 <!-- IMPORT MODAL -->
@@ -1409,27 +1376,23 @@ let partners = [];
 let jobSlots = [];
 let selectedIndex = 0;
 let currentTab = 'field';
-let marketLogo = '';
-let marketLogoName = '';
+let marketName = '';
 const STORAGE_PREFIX = 'bs_2026_static_';
 
 async function loadData() {
   const sharedSetup = await readSharedSetupFromUrl();
   if (sharedSetup) {
     partners = sharedSetup.partners;
-    marketLogo = sharedSetup.logo || '';
-    marketLogoName = sharedSetup.logoName || '';
+    marketName = sharedSetup.marketName || '';
     localStorage.setItem(STORAGE_PREFIX + 'partners', JSON.stringify(partners));
-    saveLogo();
+    saveMarketName();
     history.replaceState(null, '', location.pathname + location.search);
   } else {
     try { partners = JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'partners')) || JSON.parse(JSON.stringify(DEFAULT_PARTNERS)); } catch(e) { partners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)); }
     try {
-      marketLogo = localStorage.getItem(STORAGE_PREFIX + 'marketLogo') || '';
-      marketLogoName = localStorage.getItem(STORAGE_PREFIX + 'marketLogoName') || '';
+      marketName = localStorage.getItem(STORAGE_PREFIX + 'marketName') || '';
     } catch(e) {
-      marketLogo = '';
-      marketLogoName = '';
+      marketName = '';
     }
   }
   try {
@@ -1444,112 +1407,22 @@ function saveData() {
   localStorage.setItem(STORAGE_PREFIX + 'slots', JSON.stringify(jobSlots));
 }
 
-function saveLogo() {
-  localStorage.setItem(STORAGE_PREFIX + 'marketLogo', marketLogo);
-  localStorage.setItem(STORAGE_PREFIX + 'marketLogoName', marketLogoName);
+function saveMarketName() {
+  localStorage.setItem(STORAGE_PREFIX + 'marketName', marketName);
 }
 
-function renderBrandLogo() {
-  const defaultLogo = document.getElementById('default-brand-logo');
-  const logo = document.getElementById('market-logo');
-  const label = document.getElementById('header-brand-label');
-  const preview = document.getElementById('logo-preview-image');
-  const empty = document.getElementById('logo-preview-empty');
-  if (marketLogo) {
-    defaultLogo.style.display = 'none';
-    logo.src = marketLogo;
-    logo.style.display = 'block';
-    label.textContent = 'Brought to you by Battleship';
-    if (preview) {
-      preview.src = marketLogo;
-      preview.style.display = 'block';
-      empty.style.display = 'none';
-    }
-  } else {
-    defaultLogo.style.display = 'block';
-    logo.removeAttribute('src');
-    logo.style.display = 'none';
-    label.textContent = 'Brought to you by Battleship';
-    if (preview) {
-      preview.removeAttribute('src');
-      preview.style.display = 'none';
-      empty.style.display = 'block';
-    }
-  }
+function renderMarketName() {
+  const display = document.getElementById('header-market-name');
+  display.textContent = marketName;
+  display.style.display = marketName ? 'block' : 'none';
 }
 
-function openLogoModal() {
-  document.getElementById('logo-modal').classList.add('open');
-  setLogoStatus('', '');
-  renderBrandLogo();
-}
-
-function closeLogoModal() {
-  document.getElementById('logo-modal').classList.remove('open');
-  document.getElementById('logo-file-input').value = '';
-}
-
-function handleLogoDrop(event) {
-  event.preventDefault();
-  document.getElementById('logo-drop-zone').classList.remove('drag-over');
-  handleLogoFile(event.dataTransfer.files[0]);
-}
-
-async function handleLogoFile(file) {
-  if (!file) return;
-  if (file.type !== 'image/png' && !/\.png$/i.test(file.name)) {
-    setLogoStatus('Please choose a PNG image.', 'error');
-    return;
-  }
-  setLogoStatus('Preparing logo...', 'loading');
-  try {
-    marketLogo = await resizeLogo(file);
-    marketLogoName = file.name.replace(/\.png$/i, '').replace(/[-_]+/g, ' ').trim() || 'Market Financing';
-    saveLogo();
-    renderBrandLogo();
-    setLogoStatus('Logo saved. Copy Team Link will include it.', 'success');
-  } catch (error) {
-    setLogoStatus(error.message || 'Could not read that logo.', 'error');
-  }
-}
-
-function resizeLogo(file) {
-  return new Promise(function(resolve, reject) {
-    const reader = new FileReader();
-    reader.onerror = function(){ reject(new Error('Could not read that PNG image.')); };
-    reader.onload = function() {
-      const image = new Image();
-      image.onerror = function(){ reject(new Error('That PNG image could not be opened.')); };
-      image.onload = function() {
-        const maxWidth = 180;
-        const maxHeight = 80;
-        const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext('2d');
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/webp', 0.62));
-      };
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function removeMarketLogo() {
-  marketLogo = '';
-  marketLogoName = '';
-  saveLogo();
-  renderBrandLogo();
-  setLogoStatus('The default Battleship logo is restored.', 'success');
-}
-
-function setLogoStatus(message, type) {
-  const status = document.getElementById('logo-status');
-  status.textContent = message;
-  status.className = 'import-status' + (message ? ' visible ' + type : '');
+function changeMarketName() {
+  const value = prompt('Enter the market name. Leave blank to remove it.', marketName);
+  if (value === null) return;
+  marketName = value.trim().slice(0, 60);
+  saveMarketName();
+  renderMarketName();
 }
 
 async function copyTeamSetupLink() {
@@ -1563,30 +1436,10 @@ async function copyTeamSetupLink() {
     const baseUrl = location.href.split('#')[0] + '#team-setup=';
     let payload = '';
     let url = '';
-    let compactLogo = '';
-    const logoOptions = marketLogo ? [
-      {width:140, height:64, quality:0.52},
-      {width:112, height:54, quality:0.40},
-      {width:88, height:44, quality:0.30},
-      {width:72, height:36, quality:0.22},
-      {width:56, height:30, quality:0.14},
-      {width:44, height:24, quality:0.08},
-      {width:32, height:20, quality:0.05}
-    ] : [];
-    for (const option of logoOptions) {
-      compactLogo = await compactLogoForSharing(marketLogo, option);
-      payload = await encodeSharedSetup(JSON.stringify({v:5, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, l:compactLogo, n:marketLogoName}));
-      url = baseUrl + payload;
-      if (url.length <= 5000) break;
-    }
-    if (!marketLogo) {
-      payload = await encodeSharedSetup(JSON.stringify({v:5, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, l:'', n:''}));
-      url = baseUrl + payload;
-    } else if (url.length > 12000) {
-      throw new Error('This logo is still too large to share safely. Try a simpler PNG with a transparent background.');
-    }
+    payload = await encodeSharedSetup(JSON.stringify({v:6, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, k:marketName}));
+    url = baseUrl + payload;
     await copyText(url);
-    button.innerHTML = marketLogo ? '&#10003; Link + Logo Copied' : '&#10003; Link Copied';
+    button.innerHTML = '&#10003; Link Copied';
     setTimeout(function(){ button.innerHTML = originalText; }, 2200);
   } catch (error) {
     alert(error.message || 'Could not copy the team link.');
@@ -1716,7 +1569,7 @@ async function readSharedSetupFromUrl() {
     if (!payloadMatch) throw new Error('Invalid setup');
     const payload = payloadMatch[1];
     const data = JSON.parse(await decodeSharedSetup(payload));
-    if (data && data.v === 5 && Array.isArray(data.c) && Array.isArray(data.r) && Array.isArray(data.a)) {
+    if (data && (data.v === 5 || data.v === 6) && Array.isArray(data.c) && Array.isArray(data.r) && Array.isArray(data.a)) {
       const restoredPartners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)).filter(function(partner) {
         return data.r.indexOf(partner.id) === -1;
       });
@@ -1745,11 +1598,9 @@ async function readSharedSetupFromUrl() {
           })
         });
       });
-      const planDeltaLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
       return {
         partners: restoredPartners,
-        logo: planDeltaLogo,
-        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+        marketName: data.v === 6 && typeof data.k === 'string' ? data.k.slice(0, 60) : ''
       };
     }
     if (data && data.v === 4 && Array.isArray(data.m) && Array.isArray(data.r)) {
@@ -1781,11 +1632,9 @@ async function readSharedSetupFromUrl() {
         if (existingIndex === -1) restoredPartners.push(restored);
         else restoredPartners[existingIndex] = restored;
       });
-      const deltaLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
       return {
         partners: restoredPartners,
-        logo: deltaLogo,
-        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+        marketName: ''
       };
     }
     if (data && data.v === 3 && Array.isArray(data.p)) {
@@ -1811,11 +1660,9 @@ async function readSharedSetupFromUrl() {
           })
         };
       });
-      const compactLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
       return {
         partners: compactPartners,
-        logo: compactLogo,
-        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+        marketName: ''
       };
     }
     if (!data || (data.version !== 1 && data.version !== 2) || !Array.isArray(data.partners)) throw new Error('Invalid setup');
@@ -1843,36 +1690,14 @@ async function readSharedSetupFromUrl() {
         })
       };
     });
-    const sharedLogo = typeof data.logo === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.logo) ? data.logo : '';
     return {
       partners: sharedPartners,
-      logo: sharedLogo,
-      logoName: typeof data.logoName === 'string' ? data.logoName.slice(0, 80) : ''
+      marketName: ''
     };
   } catch (error) {
     alert('This team setup link is damaged or incomplete. Your saved setup will be used instead.');
     return null;
   }
-}
-
-function compactLogoForSharing(dataUrl, options) {
-  return new Promise(function(resolve) {
-    const image = new Image();
-    image.onerror = function(){ resolve(''); };
-    image.onload = function() {
-      const maxWidth = options.width;
-      const maxHeight = options.height;
-      const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      const context = canvas.getContext('2d');
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/webp', options.quality));
-    };
-    image.src = dataUrl;
-  });
 }
 
 async function encodeSharedSetup(text) {
@@ -2699,7 +2524,7 @@ function fileToArrayBuffer(file) {
 // INIT
 async function init() {
   await loadData();
-  renderBrandLogo();
+  renderMarketName();
   renderAmountGrid();
   renderCards();
   renderOfficeSummary();
