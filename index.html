@@ -1459,7 +1459,7 @@ function renderBrandLogo() {
     defaultLogo.style.display = 'none';
     logo.src = marketLogo;
     logo.style.display = 'block';
-    label.textContent = marketLogoName || 'Market Financing';
+    label.textContent = 'Brought to you by Battleship';
     if (preview) {
       preview.src = marketLogo;
       preview.style.display = 'block';
@@ -1640,7 +1640,6 @@ function normalizePartner(partner) {
     name: partner.name,
     plans: partner.plans.map(function(plan) {
       return {
-        id: plan.id,
         name: plan.name,
         term: Number(plan.term) || 0,
         factor: Number(plan.factor) || 0,
