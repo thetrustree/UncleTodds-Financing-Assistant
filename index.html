@@ -1559,24 +1559,19 @@ async function copyTeamSetupLink() {
     if (location.protocol === 'file:') {
       throw new Error('Open the hosted version before copying a team link.');
     }
-    const cleanPartners = partners.map(function(partner) {
-      return {
-        id: partner.id,
-        name: partner.name,
-        plans: partner.plans.map(function(plan) {
-          return {
-            id: plan.id,
-            name: plan.name,
-            term: plan.term,
-            factor: plan.factor,
-            dealerFee: plan.dealerFee,
-            minAmt: plan.minAmt,
-            maxAmt: plan.maxAmt,
-            promo: plan.promo || '',
-            active: plan.active !== false
-          };
-        })
-      };
+    const compactPartners = partners.map(function(partner) {
+      return [partner.name, partner.plans.map(function(plan) {
+        return [
+          plan.name,
+          Number(plan.term) || 0,
+          Number(plan.factor) || 0,
+          Number(plan.dealerFee) || 0,
+          Number(plan.minAmt) || 0,
+          Number(plan.maxAmt) || 0,
+          plan.promo || '',
+          plan.active === false ? 0 : 1
+        ];
+      })];
     });
     const baseUrl = location.href.split('#')[0] + '#team-setup=';
     let payload = '';
@@ -1588,16 +1583,17 @@ async function copyTeamSetupLink() {
       {width:88, height:44, quality:0.30},
       {width:72, height:36, quality:0.22},
       {width:56, height:30, quality:0.14},
-      {width:44, height:24, quality:0.08}
+      {width:44, height:24, quality:0.08},
+      {width:32, height:20, quality:0.05}
     ] : [];
     for (const option of logoOptions) {
       compactLogo = await compactLogoForSharing(marketLogo, option);
-      payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:compactLogo, logoName:marketLogoName}));
+      payload = await encodeSharedSetup(JSON.stringify({v:3, p:compactPartners, l:compactLogo, n:marketLogoName}));
       url = baseUrl + payload;
       if (url.length <= 9000) break;
     }
     if (!marketLogo) {
-      payload = await encodeSharedSetup(JSON.stringify({version:2, partners:cleanPartners, logo:'', logoName:''}));
+      payload = await encodeSharedSetup(JSON.stringify({v:3, p:compactPartners, l:'', n:''}));
       url = baseUrl + payload;
     } else if (url.length > 12000) {
       throw new Error('This logo is still too large to share safely. Try a simpler PNG with a transparent background.');
@@ -1620,6 +1616,36 @@ async function readSharedSetupFromUrl() {
     if (!payloadMatch) throw new Error('Invalid setup');
     const payload = payloadMatch[1];
     const data = JSON.parse(await decodeSharedSetup(payload));
+    if (data && data.v === 3 && Array.isArray(data.p)) {
+      const compactPartners = data.p.map(function(partner, pi) {
+        if (!Array.isArray(partner) || typeof partner[0] !== 'string' || !Array.isArray(partner[1])) throw new Error('Invalid setup');
+        return {
+          id: 'shared-p' + pi,
+          name: partner[0],
+          _open: false,
+          plans: partner[1].map(function(plan, li) {
+            if (!Array.isArray(plan)) throw new Error('Invalid setup');
+            return {
+              id: 'shared-pl' + pi + '-' + li,
+              name: String(plan[0] || 'Unnamed Plan'),
+              term: Number(plan[1]) || 0,
+              factor: Number(plan[2]) || 0,
+              dealerFee: Number(plan[3]) || 0,
+              minAmt: Number(plan[4]) || 0,
+              maxAmt: Number(plan[5]) || 0,
+              promo: String(plan[6] || ''),
+              active: plan[7] !== 0
+            };
+          })
+        };
+      });
+      const compactLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
+      return {
+        partners: compactPartners,
+        logo: compactLogo,
+        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+      };
+    }
     if (!data || (data.version !== 1 && data.version !== 2) || !Array.isArray(data.partners)) throw new Error('Invalid setup');
     const valid = data.partners.every(function(partner) {
       return partner && typeof partner.name === 'string' && Array.isArray(partner.plans);
