@@ -1559,20 +1559,7 @@ async function copyTeamSetupLink() {
     if (location.protocol === 'file:') {
       throw new Error('Open the hosted version before copying a team link.');
     }
-    const compactPartners = partners.map(function(partner) {
-      return [partner.name, partner.plans.map(function(plan) {
-        return [
-          plan.name,
-          Number(plan.term) || 0,
-          Number(plan.factor) || 0,
-          Number(plan.dealerFee) || 0,
-          Number(plan.minAmt) || 0,
-          Number(plan.maxAmt) || 0,
-          plan.promo || '',
-          plan.active === false ? 0 : 1
-        ];
-      })];
-    });
+    const setupChanges = buildSetupChanges();
     const baseUrl = location.href.split('#')[0] + '#team-setup=';
     let payload = '';
     let url = '';
@@ -1588,12 +1575,12 @@ async function copyTeamSetupLink() {
     ] : [];
     for (const option of logoOptions) {
       compactLogo = await compactLogoForSharing(marketLogo, option);
-      payload = await encodeSharedSetup(JSON.stringify({v:3, p:compactPartners, l:compactLogo, n:marketLogoName}));
+      payload = await encodeSharedSetup(JSON.stringify({v:4, m:setupChanges.modified, r:setupChanges.removed, l:compactLogo, n:marketLogoName}));
       url = baseUrl + payload;
-      if (url.length <= 9000) break;
+      if (url.length <= 5000) break;
     }
     if (!marketLogo) {
-      payload = await encodeSharedSetup(JSON.stringify({v:3, p:compactPartners, l:'', n:''}));
+      payload = await encodeSharedSetup(JSON.stringify({v:4, m:setupChanges.modified, r:setupChanges.removed, l:'', n:''}));
       url = baseUrl + payload;
     } else if (url.length > 12000) {
       throw new Error('This logo is still too large to share safely. Try a simpler PNG with a transparent background.');
@@ -1606,6 +1593,67 @@ async function copyTeamSetupLink() {
   }
 }
 
+function buildSetupChanges() {
+  const defaultsById = {};
+  DEFAULT_PARTNERS.forEach(function(partner) { defaultsById[partner.id] = partner; });
+  const currentDefaultIds = {};
+  const modified = [];
+  partners.forEach(function(partner, pi) {
+    let partnerId = defaultsById[partner.id] ? partner.id : '';
+    if (!partnerId) {
+      const nameMatch = DEFAULT_PARTNERS.find(function(candidate) {
+        return candidate.name === partner.name && !currentDefaultIds[candidate.id];
+      });
+      if (nameMatch) partnerId = nameMatch.id;
+    }
+    const shareId = partnerId || partner.id || ('custom-p' + pi);
+    if (partnerId) currentDefaultIds[partnerId] = true;
+    const compact = compactPartnerForSharing(partner, shareId);
+    if (!partnerId || JSON.stringify(normalizePartner(partner)) !== JSON.stringify(normalizePartner(defaultsById[partnerId]))) {
+      modified.push(compact);
+    }
+  });
+  const removed = DEFAULT_PARTNERS
+    .filter(function(partner) { return !currentDefaultIds[partner.id]; })
+    .map(function(partner) { return partner.id; });
+  return {modified:modified, removed:removed};
+}
+
+function compactPartnerForSharing(partner, partnerId) {
+  return [partnerId, partner.name, partner.plans.map(function(plan, li) {
+    return [
+      plan.id || (partnerId + '-pl' + li),
+      plan.name,
+      Number(plan.term) || 0,
+      Number(plan.factor) || 0,
+      Number(plan.dealerFee) || 0,
+      Number(plan.minAmt) || 0,
+      Number(plan.maxAmt) || 0,
+      plan.promo || '',
+      plan.active === false ? 0 : 1
+    ];
+  })];
+}
+
+function normalizePartner(partner) {
+  return {
+    name: partner.name,
+    plans: partner.plans.map(function(plan) {
+      return {
+        id: plan.id,
+        name: plan.name,
+        term: Number(plan.term) || 0,
+        factor: Number(plan.factor) || 0,
+        dealerFee: Number(plan.dealerFee) || 0,
+        minAmt: Number(plan.minAmt) || 0,
+        maxAmt: Number(plan.maxAmt) || 0,
+        promo: plan.promo || '',
+        active: plan.active !== false
+      };
+    })
+  };
+}
+
 async function readSharedSetupFromUrl() {
   if (!location.hash.includes('team-setup=')) return null;
   try {
@@ -1616,6 +1664,42 @@ async function readSharedSetupFromUrl() {
     if (!payloadMatch) throw new Error('Invalid setup');
     const payload = payloadMatch[1];
     const data = JSON.parse(await decodeSharedSetup(payload));
+    if (data && data.v === 4 && Array.isArray(data.m) && Array.isArray(data.r)) {
+      const restoredPartners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)).filter(function(partner) {
+        return data.r.indexOf(partner.id) === -1;
+      });
+      data.m.forEach(function(partner) {
+        if (!Array.isArray(partner) || typeof partner[0] !== 'string' || typeof partner[1] !== 'string' || !Array.isArray(partner[2])) throw new Error('Invalid setup');
+        const restored = {
+          id: partner[0],
+          name: partner[1],
+          _open: false,
+          plans: partner[2].map(function(plan, li) {
+            if (!Array.isArray(plan)) throw new Error('Invalid setup');
+            return {
+              id: String(plan[0] || (partner[0] + '-pl' + li)),
+              name: String(plan[1] || 'Unnamed Plan'),
+              term: Number(plan[2]) || 0,
+              factor: Number(plan[3]) || 0,
+              dealerFee: Number(plan[4]) || 0,
+              minAmt: Number(plan[5]) || 0,
+              maxAmt: Number(plan[6]) || 0,
+              promo: String(plan[7] || ''),
+              active: plan[8] !== 0
+            };
+          })
+        };
+        const existingIndex = restoredPartners.findIndex(function(candidate) { return candidate.id === restored.id; });
+        if (existingIndex === -1) restoredPartners.push(restored);
+        else restoredPartners[existingIndex] = restored;
+      });
+      const deltaLogo = typeof data.l === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/i.test(data.l) ? data.l : '';
+      return {
+        partners: restoredPartners,
+        logo: deltaLogo,
+        logoName: typeof data.n === 'string' ? data.n.slice(0, 80) : ''
+      };
+    }
     if (data && data.v === 3 && Array.isArray(data.p)) {
       const compactPartners = data.p.map(function(partner, pi) {
         if (!Array.isArray(partner) || typeof partner[0] !== 'string' || !Array.isArray(partner[1])) throw new Error('Invalid setup');
