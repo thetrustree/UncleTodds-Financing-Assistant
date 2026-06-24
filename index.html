@@ -361,6 +361,7 @@
     <div class="setup-title">Financing Partners &amp; Plans</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" id="share-setup-btn" onclick="copyTeamSetupLink()">&#128279; Copy Team Link</button>
+      <button class="btn btn-ghost btn-sm" id="share-field-btn" onclick="copyFieldViewLink()">&#128279; Copy Field Link</button>
       <button class="btn btn-ghost btn-sm" onclick="changeMarketName()">&#9998; Change Market Name</button>
       <button class="btn btn-ghost btn-sm" onclick="openImport()">&#8593; Import Rate Sheet</button>
       <button class="btn btn-primary" onclick="addPartner()">+ Add Partner</button>
@@ -1377,6 +1378,7 @@ let jobSlots = [];
 let selectedIndex = 0;
 let currentTab = 'field';
 let marketName = '';
+let fieldOnlyMode = false;
 const STORAGE_PREFIX = 'bs_2026_static_';
 
 async function loadData() {
@@ -1384,9 +1386,10 @@ async function loadData() {
   if (sharedSetup) {
     partners = sharedSetup.partners;
     marketName = sharedSetup.marketName || '';
+    fieldOnlyMode = sharedSetup.fieldOnly === true;
     localStorage.setItem(STORAGE_PREFIX + 'partners', JSON.stringify(partners));
     saveMarketName();
-    history.replaceState(null, '', location.pathname + location.search);
+    if (!fieldOnlyMode) history.replaceState(null, '', location.pathname + location.search);
   } else {
     try { partners = JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'partners')) || JSON.parse(JSON.stringify(DEFAULT_PARTNERS)); } catch(e) { partners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)); }
     try {
@@ -1426,7 +1429,15 @@ function changeMarketName() {
 }
 
 async function copyTeamSetupLink() {
-  const button = document.getElementById('share-setup-btn');
+  return copySetupLink(false);
+}
+
+async function copyFieldViewLink() {
+  return copySetupLink(true);
+}
+
+async function copySetupLink(fieldOnly) {
+  const button = document.getElementById(fieldOnly ? 'share-field-btn' : 'share-setup-btn');
   const originalText = button.innerHTML;
   try {
     if (location.protocol === 'file:') {
@@ -1436,10 +1447,10 @@ async function copyTeamSetupLink() {
     const baseUrl = location.href.split('#')[0] + '#team-setup=';
     let payload = '';
     let url = '';
-    payload = await encodeSharedSetup(JSON.stringify({v:6, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, k:marketName}));
+    payload = await encodeSharedSetup(JSON.stringify({v:7, c:setupChanges.changed, r:setupChanges.removed, a:setupChanges.added, k:marketName, f:fieldOnly ? 1 : 0}));
     url = baseUrl + payload;
     await copyText(url);
-    button.innerHTML = '&#10003; Link Copied';
+    button.innerHTML = fieldOnly ? '&#10003; Field Link Copied' : '&#10003; Team Link Copied';
     setTimeout(function(){ button.innerHTML = originalText; }, 2200);
   } catch (error) {
     alert(error.message || 'Could not copy the team link.');
@@ -1569,7 +1580,7 @@ async function readSharedSetupFromUrl() {
     if (!payloadMatch) throw new Error('Invalid setup');
     const payload = payloadMatch[1];
     const data = JSON.parse(await decodeSharedSetup(payload));
-    if (data && (data.v === 5 || data.v === 6) && Array.isArray(data.c) && Array.isArray(data.r) && Array.isArray(data.a)) {
+    if (data && (data.v === 5 || data.v === 6 || data.v === 7) && Array.isArray(data.c) && Array.isArray(data.r) && Array.isArray(data.a)) {
       const restoredPartners = JSON.parse(JSON.stringify(DEFAULT_PARTNERS)).filter(function(partner) {
         return data.r.indexOf(partner.id) === -1;
       });
@@ -1600,7 +1611,8 @@ async function readSharedSetupFromUrl() {
       });
       return {
         partners: restoredPartners,
-        marketName: data.v === 6 && typeof data.k === 'string' ? data.k.slice(0, 60) : ''
+        marketName: data.v >= 6 && typeof data.k === 'string' ? data.k.slice(0, 60) : '',
+        fieldOnly: data.v === 7 && data.f === 1
       };
     }
     if (data && data.v === 4 && Array.isArray(data.m) && Array.isArray(data.r)) {
@@ -2081,6 +2093,7 @@ function removePlan(pi,li) { partners[pi].plans.splice(li,1); saveData(); render
 
 // TABS
 function switchTab(tab) {
+  if (fieldOnlyMode && tab !== 'field') return;
   currentTab = tab;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
@@ -2525,6 +2538,12 @@ function fileToArrayBuffer(file) {
 async function init() {
   await loadData();
   renderMarketName();
+  if (fieldOnlyMode) {
+    document.querySelector('.tabs').style.display = 'none';
+    document.getElementById('screen-office').remove();
+    document.getElementById('screen-setup').remove();
+    currentTab = 'field';
+  }
   renderAmountGrid();
   renderCards();
   renderOfficeSummary();
